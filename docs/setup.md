@@ -1,4 +1,31 @@
 # Setup Guide
+
+## Table of Contents
+
+- [Initial Configuration](#initial-configuration)
+  - [Quick Start with Makefile](#quick-start-with-makefile)
+  - [Manual Setup (Alternative to Makefile)](#manual-setup-alternative-to-makefile)
+  - [Agent Goal Configuration](#agent-goal-configuration)
+  - [LLM Configuration](#llm-configuration)
+- [Configuring Temporal Connection](#configuring-temporal-connection)
+  - [Use Temporal Cloud](#use-temporal-cloud)
+  - [Use a local Temporal Dev Server](#use-a-local-temporal-dev-server)
+- [Running the Application](#running-the-application)
+  - [Docker](#docker)
+  - [Local Machine (no docker)](#local-machine-no-docker)
+- [MCP Tools Configuration](#mcp-tools-configuration)
+  - [Adding MCP Tools to Goals](#adding-mcp-tools-to-goals)
+  - [MCP Environment Variables](#mcp-environment-variables)
+- [Goal-Specific Tool Configuration](#goal-specific-tool-configuration)
+  - [Goal: Find an event in Australia / New Zealand, book flights to it and invoice the user for the cost](#goal-find-an-event-in-australia--new-zealand-book-flights-to-it-and-invoice-the-user-for-the-cost)
+  - [Goal: Find a Premier League match, book train tickets to it and invoice the user for the cost (Replay 2025 Keynote)](#goal-find-a-premier-league-match-book-train-tickets-to-it-and-invoice-the-user-for-the-cost-replay-2025-keynote)
+  - [Goals: FIN - Money Movement and Loan Application](#goals-fin---money-movement-and-loan-application)
+  - [Goals: HR/PTO](#goals-hrpto)
+  - [Goals: Ecommerce](#goals-ecommerce)
+  - [Goal: Food Ordering with MCP Integration (Stripe Payment Processing)](#goal-food-ordering-with-mcp-integration-stripe-payment-processing)
+- [Customizing the Agent Further](#customizing-the-agent-further)
+- [Setup Checklist](#setup-checklist)
+
 ## Initial Configuration
 
 This application uses `.env` files for configuration. Copy the [.env.example](.env.example) file to `.env` and update the values:

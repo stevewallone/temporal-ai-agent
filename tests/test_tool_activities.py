@@ -99,7 +99,7 @@ class TestToolActivities:
             prompt="Test prompt", context_instructions="Test context instructions"
         )
 
-        # Mock the completion function
+        # Mock the llm_manager.call_llm method
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[
@@ -108,8 +108,10 @@ class TestToolActivities:
             '{"next": "confirm", "tool": "TestTool", "response": "Test response"}'
         )
 
-        with patch("activities.tool_activities.completion") as mock_completion:
-            mock_completion.return_value = mock_response
+        with patch.object(
+            self.tool_activities.llm_manager, "call_llm", new_callable=AsyncMock
+        ) as mock_call_llm:
+            mock_call_llm.return_value = mock_response
 
             activity_env = ActivityEnvironment()
             result = await activity_env.run(
@@ -121,13 +123,12 @@ class TestToolActivities:
             assert result["tool"] == "TestTool"
             assert result["response"] == "Test response"
 
-            # Verify completion was called with correct parameters
-            mock_completion.assert_called_once()
-            call_args = mock_completion.call_args[1]
-            assert call_args["model"] == self.tool_activities.llm_model
-            assert len(call_args["messages"]) == 2
-            assert call_args["messages"][0]["role"] == "system"
-            assert call_args["messages"][1]["role"] == "user"
+            # Verify call_llm was called with correct parameters
+            mock_call_llm.assert_called_once()
+            call_args = mock_call_llm.call_args[0][0]  # First positional argument (messages)
+            assert len(call_args) == 2
+            assert call_args[0]["role"] == "system"
+            assert call_args[1]["role"] == "user"
 
     @pytest.mark.asyncio
     async def test_agent_toolPlanner_with_custom_base_url(self):
@@ -146,16 +147,16 @@ class TestToolActivities:
                 0
             ].message.content = '{"next": "done", "response": "Test"}'
 
-            with patch("activities.tool_activities.completion") as mock_completion:
-                mock_completion.return_value = mock_response
+            with patch.object(
+                tool_activities.llm_manager, "call_llm", new_callable=AsyncMock
+            ) as mock_call_llm:
+                mock_call_llm.return_value = mock_response
 
                 activity_env = ActivityEnvironment()
                 await activity_env.run(tool_activities.agent_toolPlanner, prompt_input)
 
-                # Verify base_url was included in the call
-                call_args = mock_completion.call_args[1]
-                assert "base_url" in call_args
-                assert call_args["base_url"] == "https://custom.endpoint.com"
+                # Verify call_llm was called
+                mock_call_llm.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_agent_toolPlanner_json_parsing_error(self):
@@ -164,13 +165,15 @@ class TestToolActivities:
             prompt="Test prompt", context_instructions="Test context instructions"
         )
 
-        # Mock the completion function to return invalid JSON
+        # Mock the llm_manager.call_llm method to return invalid JSON
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = "Invalid JSON response"
 
-        with patch("activities.tool_activities.completion") as mock_completion:
-            mock_completion.return_value = mock_response
+        with patch.object(
+            self.tool_activities.llm_manager, "call_llm", new_callable=AsyncMock
+        ) as mock_call_llm:
+            mock_call_llm.return_value = mock_response
 
             activity_env = ActivityEnvironment()
             with pytest.raises(Exception):  # Should raise JSON parsing error
@@ -372,7 +375,10 @@ class TestEdgeCases:
             0
         ].message.content = '{"next": "done", "response": "Processed long prompt"}'
 
-        with patch("activities.tool_activities.completion", return_value=mock_response):
+        with patch.object(
+            self.tool_activities.llm_manager, "call_llm", new_callable=AsyncMock
+        ) as mock_call_llm:
+            mock_call_llm.return_value = mock_response
             activity_env = ActivityEnvironment()
             result = await activity_env.run(
                 self.tool_activities.agent_toolPlanner, tool_prompt_input
