@@ -205,6 +205,39 @@ class ToolActivities:
 
         return output
 
+    def warm_up_ollama(self) -> bool:
+        """
+        Pre-load the Ollama model to avoid cold start latency.
+        Returns True if successful, False otherwise.
+        """
+        import time
+
+        try:
+            start_time = time.time()
+            print("Sending warm-up request to Ollama...")
+
+            # Make a simple completion request to load the model
+            response = completion(
+                model=self.llm_model,
+                messages=[{"role": "user", "content": "Hello"}],
+                api_key=self.llm_key,
+                base_url=self.llm_base_url,
+            )
+
+            end_time = time.time()
+            duration = end_time - start_time
+
+            if response and response.choices:
+                print(f"✅ Model loaded successfully in {duration:.1f} seconds")
+                return True
+            else:
+                print("❌ Model loading failed: No response received")
+                return False
+
+        except Exception as e:
+            print(f"❌ Model loading failed: {str(e)}")
+            return False
+
     @activity.defn
     async def mcp_tool_activity(
         self, tool_name: str, tool_args: Dict[str, Any]
