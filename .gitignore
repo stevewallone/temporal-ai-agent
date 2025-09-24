@@ -4,6 +4,9 @@
 # Claude Code
 CLAUDE.md
 
+# IntelliJ
+*.iml
+
 # Python cache & compiled files
 __pycache__/
 *.py[cod]
