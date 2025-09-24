@@ -129,6 +129,7 @@ class ToolActivities:
 
         try:
             # Use LLMManager for automatic fallback support
+
             response = await self.llm_manager.call_llm(messages)
 
             response_content = response.choices[0].message.content

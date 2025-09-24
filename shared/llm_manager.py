@@ -159,6 +159,9 @@ class LLMManager:
         if not self.fallback_model:
             raise Exception("No fallback LLM configured")
 
+        # Perform heartbeat check before making the actual call
+        await self._heartbeat_check(self.fallback_model, self.fallback_key, self.fallback_base_url)
+
         completion_kwargs = {
             "model": self.fallback_model,
             "messages": messages,
