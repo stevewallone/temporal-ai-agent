@@ -43,6 +43,10 @@ class LLMManager:
             os.environ.get("LLM_RECOVERY_CHECK_INTERVAL_MINUTES", "5")
         )
 
+        # Debug file settings
+        self.debug_output_enabled = os.environ.get("LLM_DEBUG_OUTPUT", "false").lower() == "true"
+        self.debug_output_dir = os.environ.get("LLM_DEBUG_OUTPUT_DIR", "./debug_llm_calls")
+
         self._log_configuration()
 
     def _log_configuration(self):
@@ -58,6 +62,9 @@ class LLMManager:
             print(f"  Recovery check interval: {self.recovery_check_interval_minutes} minutes")
         else:
             print("  No fallback model configured")
+
+        if self.debug_output_enabled:
+            print(f"  Debug output enabled: {self.debug_output_dir}")
 
     async def call_llm(
         self,
@@ -77,6 +84,9 @@ class LLMManager:
         Raises:
             Exception: If both primary and fallback LLMs fail
         """
+        # Save debug output if enabled
+        if self.debug_output_enabled:
+            await self._save_debug_output(messages, kwargs)
         # Check if we should try to recover from fallback mode
         # If the fallback llm is in use and the conditions to try
         # the recovery back to the primary have been met, check
@@ -250,3 +260,42 @@ class LLMManager:
             "fallback_configured": bool(self.fallback_model),
             "last_recovery_check": self.last_recovery_check.isoformat() if self.last_recovery_check else None
         }
+
+    async def _save_debug_output(self, messages: List[Dict[str, str]], kwargs: Dict[str, Any]) -> None:
+        """Save LLM messages in a format that can be cut/pasted into an LLM interface."""
+        try:
+            # Create debug directory if it doesn't exist
+            os.makedirs(self.debug_output_dir, exist_ok=True)
+
+            # Generate timestamp-based filename
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]  # Include milliseconds
+            filename = f"llm_call_{timestamp}.txt"
+            filepath = os.path.join(self.debug_output_dir, filename)
+
+            # Write to file
+            with open(filepath, 'w') as f:
+                # Write header information
+                f.write(f"=== LLM Debug Output ===\n")
+                f.write(f"Timestamp: {datetime.now().isoformat()}\n")
+                f.write(f"Model: {self.get_current_model()}\n")
+                f.write(f"Using Fallback: {self.using_fallback}\n")
+                f.write(f"Extra Args: {kwargs}\n")
+                f.write("=" * 50 + "\n\n")
+
+                # Write each message in a readable format
+                for i, message in enumerate(messages, 1):
+                    role = message.get("role", "unknown")
+                    content = message.get("content", "")
+
+                    f.write(f"As ({role.upper()}) :\n")
+                    f.write(f"{content}\n")
+                    f.write("\n" + "-" * 30 + "\n\n")
+
+                # Add a section for easy copying
+                f.write("=== FOR MANUAL TESTING ===\n")
+                f.write("Copy the messages above and paste into your LLM interface.\n")
+
+            activity.logger.debug(f"Saved LLM debug output to {filepath}")
+
+        except Exception as e:
+            activity.logger.warning(f"Failed to save LLM debug output: {str(e)}")

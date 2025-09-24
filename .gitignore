@@ -1,11 +1,8 @@
 # OS-specific files
 .DS_Store
 
-# Claude Code
-CLAUDE.md
-
-# IntelliJ
-*.iml
+# Debug files
+debug_llm_calls
 
 # Python cache & compiled files
 __pycache__/
@@ -36,9 +33,13 @@ coverage.xml
 
 # PyCharm / IntelliJ settings
 .idea/
+*.iml
 
 .env
 .env*
 
 # Cursor
 .cursor
+
+# Claude Code
+CLAUDE.md
