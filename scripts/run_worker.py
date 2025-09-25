@@ -56,7 +56,15 @@ async def main():
             print("===========================================================\n")
 
     print("Worker ready to process tasks!")
-    logging.basicConfig(level=logging.INFO)
+
+    # Configure logging level from environment or default to INFO
+    log_level = os.environ.get("LOGLEVEL", "INFO").upper()
+    numeric_level = getattr(logging, log_level, logging.INFO)
+    logging.basicConfig(
+        level=numeric_level,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    print(f"Logging configured at level: {log_level}")
 
     # Run the worker with proper cleanup
     try:

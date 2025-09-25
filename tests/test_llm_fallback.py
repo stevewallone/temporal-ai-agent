@@ -27,11 +27,15 @@ def mock_env_vars():
         "LLM_KEY": "test-primary-key",
         "LLM_FALLBACK_MODEL": "anthropic/claude-3",
         "LLM_FALLBACK_KEY": "test-fallback-key",
-        "LLM_FALLBACK_TIMEOUT_MINUTES": "2",
+        "LLM_FALLBACK_DURATION_MINUTES": "2",
         "LLM_RECOVERY_CHECK_INTERVAL_MINUTES": "5",
     }
     with patch.dict(os.environ, env_vars):
+        # Reset singleton before each test
+        LLMManager._reset_singleton()
         yield env_vars
+        # Reset singleton after each test to ensure isolation
+        LLMManager._reset_singleton()
 
 
 @pytest.fixture
@@ -51,10 +55,10 @@ async def test_llm_manager_initialization(mock_env_vars):
     assert manager.primary_key == "test-primary-key"
     assert manager.fallback_model == "anthropic/claude-3"
     assert manager.fallback_key == "test-fallback-key"
-    assert manager.fallback_timeout_minutes == 2
+    assert manager.fallback_duration_minutes == 2
     assert manager.recovery_check_interval_minutes == 5
     assert not manager.using_fallback
-    assert manager.primary_failure_start is None
+    assert manager.primary_failure_time is None
 
 
 @pytest.mark.asyncio
@@ -71,7 +75,7 @@ async def test_successful_primary_llm_call(mock_env_vars):
 
         assert response == mock_response
         assert not manager.using_fallback
-        assert manager.primary_failure_start is None
+        assert manager.primary_failure_time is None
         mock_completion.assert_called_once()
 
 
@@ -81,7 +85,7 @@ async def test_fallback_after_timeout(mock_env_vars):
     manager = LLMManager()
 
     # Simulate primary failure
-    manager.primary_failure_start = datetime.now() - timedelta(minutes=3)
+    manager.primary_failure_time = datetime.now() - timedelta(minutes=3)
 
     mock_fallback_response = MagicMock()
     mock_fallback_response.choices = [MagicMock(message=MagicMock(content="Fallback response"))]
@@ -107,23 +111,31 @@ async def test_fallback_after_timeout(mock_env_vars):
 
 
 @pytest.mark.asyncio
-async def test_no_fallback_before_timeout(mock_env_vars):
-    """Test that system doesn't switch to fallback before timeout."""
+async def test_immediate_fallback_on_primary_failure(mock_env_vars):
+    """Test that system immediately switches to fallback on primary failure."""
     manager = LLMManager()
 
-    # Simulate recent primary failure (less than timeout)
-    manager.primary_failure_start = datetime.now() - timedelta(seconds=30)
+    mock_fallback_response = MagicMock()
+    mock_fallback_response.choices = [MagicMock(message=MagicMock(content="Fallback response"))]
 
     with patch("shared.llm_manager.completion") as mock_completion:
-        mock_completion.side_effect = Exception("Primary LLM failed")
+        # First call fails (primary), second succeeds (fallback)
+        mock_completion.side_effect = [
+            Exception("Primary LLM failed"),
+            mock_fallback_response,
+        ]
 
         messages = [{"role": "user", "content": "Test message"}]
+        response = await manager.call_llm(messages)
 
-        with pytest.raises(Exception, match="Primary LLM failed"):
-            await manager.call_llm(messages)
+        assert response == mock_fallback_response
+        assert manager.using_fallback
+        assert mock_completion.call_count == 2
 
-        assert not manager.using_fallback
-        mock_completion.assert_called_once()
+        # Verify fallback was called with correct model
+        fallback_call = mock_completion.call_args_list[1]
+        assert fallback_call[1]["model"] == "anthropic/claude-3"
+        assert fallback_call[1]["api_key"] == "test-fallback-key"
 
 
 @pytest.mark.asyncio
@@ -144,7 +156,7 @@ async def test_recovery_to_primary(mock_env_vars):
 
         assert response == mock_response
         assert not manager.using_fallback  # Should have recovered
-        assert manager.primary_failure_start is None
+        assert manager.primary_failure_time is None
 
         # Should have made health check and actual call
         assert mock_completion.call_count == 2
@@ -156,7 +168,7 @@ async def test_both_llms_fail(mock_env_vars):
     manager = LLMManager()
 
     # Simulate primary failure timeout
-    manager.primary_failure_start = datetime.now() - timedelta(minutes=3)
+    manager.primary_failure_time = datetime.now() - timedelta(minutes=3)
 
     with patch("shared.llm_manager.completion") as mock_completion:
         mock_completion.side_effect = Exception("All LLMs failed")
@@ -181,6 +193,7 @@ async def test_no_fallback_configured():
         "LLM_DEBUG_OUTPUT": "false",
     }
     with patch.dict(os.environ, env_vars, clear=True):
+        LLMManager._reset_singleton()
         manager = LLMManager()
 
         assert manager.fallback_model is None or manager.fallback_model == ""
@@ -206,16 +219,16 @@ async def test_get_status(mock_env_vars):
     status = manager.get_status()
     assert status["current_model"] == "openai/gpt-4"
     assert not status["using_fallback"]
-    assert status["primary_failure_start"] is None
+    assert status["primary_failure_time"] is None
     assert status["fallback_configured"]
 
     # Test status during failure
-    manager.primary_failure_start = datetime.now()
+    manager.primary_failure_time = datetime.now()
     manager.using_fallback = True
     status = manager.get_status()
     assert status["current_model"] == "anthropic/claude-3"
     assert status["using_fallback"]
-    assert status["primary_failure_start"] is not None
+    assert status["primary_failure_time"] is not None
     assert status["failure_duration_seconds"] is not None
 
 
@@ -255,6 +268,7 @@ async def test_debug_output_disabled_by_default():
         "LLM_DEBUG_OUTPUT": "false",  # Explicitly set to false
     }
     with patch.dict(os.environ, env_vars, clear=True):
+        LLMManager._reset_singleton()
         manager = LLMManager()
         assert not manager.debug_output_enabled
 
@@ -270,6 +284,7 @@ async def test_debug_output_enabled(temp_debug_dir):
     }
 
     with patch.dict(os.environ, env_vars):
+        LLMManager._reset_singleton()
         manager = LLMManager()
         assert manager.debug_output_enabled
         assert manager.debug_output_dir == temp_debug_dir
@@ -286,6 +301,7 @@ async def test_save_debug_output(temp_debug_dir):
     }
 
     with patch.dict(os.environ, env_vars):
+        LLMManager._reset_singleton()
         manager = LLMManager()
 
         messages = [
@@ -329,10 +345,11 @@ async def test_debug_output_fallback_model(temp_debug_dir):
         "LLM_FALLBACK_KEY": "fallback-key",
         "LLM_DEBUG_OUTPUT": "true",
         "LLM_DEBUG_OUTPUT_DIR": temp_debug_dir,
-        "LLM_FALLBACK_TIMEOUT_MINUTES": "0",  # Immediate fallback
+        "LLM_FALLBACK_DURATION_MINUTES": "0",  # Immediate fallback
     }
 
     with patch.dict(os.environ, env_vars):
+        LLMManager._reset_singleton()
         manager = LLMManager()
 
         # Force fallback mode
@@ -378,6 +395,7 @@ async def test_cleanup_old_debug_files(temp_debug_dir):
     }
 
     with patch.dict(os.environ, env_vars):
+        LLMManager._reset_singleton()
         manager = LLMManager()
 
         # This should trigger cleanup
@@ -412,6 +430,7 @@ async def test_cleanup_called_during_save_debug_output(temp_debug_dir):
     }
 
     with patch.dict(os.environ, env_vars):
+        LLMManager._reset_singleton()
         manager = LLMManager()
 
         messages = [{"role": "user", "content": "Test cleanup"}]
@@ -440,6 +459,7 @@ async def test_debug_output_error_handling(temp_debug_dir):
 
     try:
         with patch.dict(os.environ, env_vars):
+            LLMManager._reset_singleton()
             manager = LLMManager()
 
             messages = [{"role": "user", "content": "Test error handling"}]
@@ -479,6 +499,7 @@ async def test_cleanup_error_handling(temp_debug_dir):
     }
 
     with patch.dict(os.environ, env_vars):
+        LLMManager._reset_singleton()
         manager = LLMManager()
 
         # Cleanup should handle protected file gracefully
@@ -504,6 +525,7 @@ async def test_debug_output_with_complex_messages(temp_debug_dir):
     }
 
     with patch.dict(os.environ, env_vars):
+        LLMManager._reset_singleton()
         manager = LLMManager()
 
         # Messages with special characters and multiline content
