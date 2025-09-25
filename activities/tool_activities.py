@@ -105,7 +105,7 @@ class ToolActivities:
             prompt=validation_prompt, context_instructions=context_instructions
         )
 
-        result = await self.agent_toolPlanner(prompt_input)
+        result = await self.agent_tool_planner(prompt_input)
 
         return ValidationResult(
             validationResult=result.get("validationResult", False),
@@ -113,7 +113,7 @@ class ToolActivities:
         )
 
     @activity.defn
-    async def agent_toolPlanner(self, input: ToolPromptInput) -> dict:
+    async def agent_tool_planner(self, input: ToolPromptInput) -> dict:
         messages = [
             {
                 "role": "system",

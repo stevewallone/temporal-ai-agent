@@ -5,7 +5,6 @@ This module provides a robust LLM client that automatically switches to a fallba
 LLM when the primary LLM fails for more than a specified duration (default 2 minutes).
 """
 
-import asyncio
 import os
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
@@ -159,9 +158,6 @@ class LLMManager:
         if not self.fallback_model:
             raise Exception("No fallback LLM configured")
 
-        # Perform heartbeat check before making the actual call
-        await self._heartbeat_check(self.fallback_model, self.fallback_key, self.fallback_base_url)
-
         completion_kwargs = {
             "model": self.fallback_model,
             "messages": messages,
@@ -270,6 +266,9 @@ class LLMManager:
             # Create debug directory if it doesn't exist
             os.makedirs(self.debug_output_dir, exist_ok=True)
 
+            # Clean up old files, keeping only the 20 most recent
+            self._cleanup_old_debug_files()
+
             # Generate timestamp-based filename
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]  # Include milliseconds
             filename = f"llm_call_{timestamp}.txt"
@@ -302,3 +301,32 @@ class LLMManager:
 
         except Exception as e:
             activity.logger.warning(f"Failed to save LLM debug output: {str(e)}")
+
+    def _cleanup_old_debug_files(self) -> None:
+        """Keep only the 20 most recent debug files, delete older ones."""
+        try:
+            # Get all debug files in the directory
+            debug_files = []
+            for filename in os.listdir(self.debug_output_dir):
+                if filename.startswith("llm_call_") and filename.endswith(".txt"):
+                    filepath = os.path.join(self.debug_output_dir, filename)
+                    if os.path.isfile(filepath):
+                        # Get file modification time
+                        mtime = os.path.getmtime(filepath)
+                        debug_files.append((filepath, mtime))
+
+            # Sort by modification time (newest first)
+            debug_files.sort(key=lambda x: x[1], reverse=True)
+
+            # Keep only the 20 most recent files, delete the rest
+            if len(debug_files) > 20:
+                files_to_delete = debug_files[20:]
+                for filepath, _ in files_to_delete:
+                    try:
+                        os.remove(filepath)
+                        activity.logger.debug(f"Deleted old debug file: {filepath}")
+                    except OSError as e:
+                        activity.logger.warning(f"Failed to delete old debug file {filepath}: {str(e)}")
+
+        except Exception as e:
+            activity.logger.warning(f"Failed to cleanup old debug files: {str(e)}")

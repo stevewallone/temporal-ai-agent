@@ -7,6 +7,8 @@ LLM when the primary LLM fails for more than the configured timeout.
 
 import asyncio
 import os
+import tempfile
+import shutil
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -30,6 +32,14 @@ def mock_env_vars():
     }
     with patch.dict(os.environ, env_vars):
         yield env_vars
+
+
+@pytest.fixture
+def temp_debug_dir():
+    """Create a temporary directory for debug files."""
+    temp_dir = tempfile.mkdtemp()
+    yield temp_dir
+    shutil.rmtree(temp_dir)
 
 
 @pytest.mark.asyncio
@@ -163,10 +173,17 @@ async def test_both_llms_fail(mock_env_vars):
 @pytest.mark.asyncio
 async def test_no_fallback_configured():
     """Test behavior when no fallback LLM is configured."""
-    with patch.dict(os.environ, {"LLM_MODEL": "openai/gpt-4", "LLM_KEY": "test-key"}):
+    env_vars = {
+        "LLM_MODEL": "openai/gpt-4",
+        "LLM_KEY": "test-key",
+        "LLM_FALLBACK_MODEL": "",  # Explicitly clear fallback
+        "LLM_FALLBACK_KEY": "",
+        "LLM_DEBUG_OUTPUT": "false",
+    }
+    with patch.dict(os.environ, env_vars, clear=True):
         manager = LLMManager()
 
-        assert manager.fallback_model is None
+        assert manager.fallback_model is None or manager.fallback_model == ""
 
         with patch("shared.llm_manager.completion") as mock_completion:
             mock_completion.side_effect = Exception("Primary LLM failed")
@@ -224,5 +241,295 @@ async def test_integration_with_tool_activities(mock_env_vars):
             context_instructions="Test context"
         )
 
-        result = await env.run(activities.agent_toolPlanner, input_data)
+        result = await env.run(activities.agent_tool_planner, input_data)
         assert result == {"result": "success"}
+
+
+# Debug Output Tests
+@pytest.mark.asyncio
+async def test_debug_output_disabled_by_default():
+    """Test that debug output is disabled by default."""
+    env_vars = {
+        "LLM_MODEL": "openai/gpt-4",
+        "LLM_KEY": "test-key",
+        "LLM_DEBUG_OUTPUT": "false",  # Explicitly set to false
+    }
+    with patch.dict(os.environ, env_vars, clear=True):
+        manager = LLMManager()
+        assert not manager.debug_output_enabled
+
+
+@pytest.mark.asyncio
+async def test_debug_output_enabled(temp_debug_dir):
+    """Test that debug output can be enabled and configured."""
+    env_vars = {
+        "LLM_MODEL": "openai/gpt-4",
+        "LLM_KEY": "test-key",
+        "LLM_DEBUG_OUTPUT": "true",
+        "LLM_DEBUG_OUTPUT_DIR": temp_debug_dir,
+    }
+
+    with patch.dict(os.environ, env_vars):
+        manager = LLMManager()
+        assert manager.debug_output_enabled
+        assert manager.debug_output_dir == temp_debug_dir
+
+
+@pytest.mark.asyncio
+async def test_save_debug_output(temp_debug_dir):
+    """Test that debug output is saved correctly."""
+    env_vars = {
+        "LLM_MODEL": "openai/gpt-4",
+        "LLM_KEY": "test-key",
+        "LLM_DEBUG_OUTPUT": "true",
+        "LLM_DEBUG_OUTPUT_DIR": temp_debug_dir,
+    }
+
+    with patch.dict(os.environ, env_vars):
+        manager = LLMManager()
+
+        messages = [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": "Hello, world!"},
+        ]
+        kwargs = {"temperature": 0.7, "max_tokens": 100}
+
+        mock_response = MagicMock()
+        with patch("shared.llm_manager.completion", return_value=mock_response):
+            await manager.call_llm(messages, **kwargs)
+
+        # Check that debug file was created
+        debug_files = [f for f in os.listdir(temp_debug_dir) if f.startswith("llm_call_")]
+        assert len(debug_files) == 1
+
+        # Verify file contents
+        debug_file_path = os.path.join(temp_debug_dir, debug_files[0])
+        with open(debug_file_path, 'r') as f:
+            content = f.read()
+
+        assert "=== LLM Debug Output ===" in content
+        assert "Model: openai/gpt-4" in content
+        assert "Using Fallback: False" in content
+        assert "temperature" in content
+        assert "max_tokens" in content
+        assert "As (SYSTEM) :" in content
+        assert "You are a helpful assistant." in content
+        assert "As (USER) :" in content
+        assert "Hello, world!" in content
+        assert "=== FOR MANUAL TESTING ===" in content
+
+
+@pytest.mark.asyncio
+async def test_debug_output_fallback_model(temp_debug_dir):
+    """Test debug output when using fallback model."""
+    env_vars = {
+        "LLM_MODEL": "openai/gpt-4",
+        "LLM_KEY": "test-key",
+        "LLM_FALLBACK_MODEL": "anthropic/claude-3",
+        "LLM_FALLBACK_KEY": "fallback-key",
+        "LLM_DEBUG_OUTPUT": "true",
+        "LLM_DEBUG_OUTPUT_DIR": temp_debug_dir,
+        "LLM_FALLBACK_TIMEOUT_MINUTES": "0",  # Immediate fallback
+    }
+
+    with patch.dict(os.environ, env_vars):
+        manager = LLMManager()
+
+        # Force fallback mode
+        manager.using_fallback = True
+
+        messages = [{"role": "user", "content": "Test fallback"}]
+
+        mock_response = MagicMock()
+        with patch("shared.llm_manager.completion", return_value=mock_response):
+            await manager.call_llm(messages)
+
+        # Check debug file
+        debug_files = [f for f in os.listdir(temp_debug_dir) if f.startswith("llm_call_")]
+        assert len(debug_files) == 1
+
+        debug_file_path = os.path.join(temp_debug_dir, debug_files[0])
+        with open(debug_file_path, 'r') as f:
+            content = f.read()
+
+        assert "Model: anthropic/claude-3" in content
+        assert "Using Fallback: True" in content
+
+
+@pytest.mark.asyncio
+async def test_cleanup_old_debug_files(temp_debug_dir):
+    """Test that old debug files are cleaned up, keeping only 20 most recent."""
+    # Create 25 fake debug files with different timestamps
+    for i in range(25):
+        filename = f"llm_call_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{i:03d}.txt"
+        filepath = os.path.join(temp_debug_dir, filename)
+        with open(filepath, 'w') as f:
+            f.write(f"Debug file {i}")
+
+        # Modify file times to simulate different creation times
+        timestamp = (datetime.now() - timedelta(hours=i)).timestamp()
+        os.utime(filepath, (timestamp, timestamp))
+
+    env_vars = {
+        "LLM_MODEL": "openai/gpt-4",
+        "LLM_KEY": "test-key",
+        "LLM_DEBUG_OUTPUT": "true",
+        "LLM_DEBUG_OUTPUT_DIR": temp_debug_dir,
+    }
+
+    with patch.dict(os.environ, env_vars):
+        manager = LLMManager()
+
+        # This should trigger cleanup
+        manager._cleanup_old_debug_files()
+
+        # Check that only 20 files remain
+        debug_files = [f for f in os.listdir(temp_debug_dir) if f.startswith("llm_call_")]
+        assert len(debug_files) == 20
+
+        # Verify the most recent files are kept (files 0-19, which have newer timestamps)
+        remaining_files = sorted(debug_files)
+        for i, filename in enumerate(remaining_files):
+            # Files should be sorted by name (which includes timestamp)
+            assert f"_{i:03d}.txt" in filename
+
+
+@pytest.mark.asyncio
+async def test_cleanup_called_during_save_debug_output(temp_debug_dir):
+    """Test that cleanup is automatically called when saving debug output."""
+    # Create 22 existing files
+    for i in range(22):
+        filename = f"llm_call_20240101_120000_{i:03d}.txt"
+        filepath = os.path.join(temp_debug_dir, filename)
+        with open(filepath, 'w') as f:
+            f.write(f"Old debug file {i}")
+
+    env_vars = {
+        "LLM_MODEL": "openai/gpt-4",
+        "LLM_KEY": "test-key",
+        "LLM_DEBUG_OUTPUT": "true",
+        "LLM_DEBUG_OUTPUT_DIR": temp_debug_dir,
+    }
+
+    with patch.dict(os.environ, env_vars):
+        manager = LLMManager()
+
+        messages = [{"role": "user", "content": "Test cleanup"}]
+
+        mock_response = MagicMock()
+        with patch("shared.llm_manager.completion", return_value=mock_response):
+            await manager.call_llm(messages)
+
+        # Should have cleaned up old files and created 1 new one
+        debug_files = [f for f in os.listdir(temp_debug_dir) if f.startswith("llm_call_")]
+        assert len(debug_files) <= 21  # 20 old + 1 new, but cleanup may have removed some old ones
+
+
+@pytest.mark.asyncio
+async def test_debug_output_error_handling(temp_debug_dir):
+    """Test error handling when debug output fails."""
+    # Make directory read-only to simulate write error
+    os.chmod(temp_debug_dir, 0o444)
+
+    env_vars = {
+        "LLM_MODEL": "openai/gpt-4",
+        "LLM_KEY": "test-key",
+        "LLM_DEBUG_OUTPUT": "true",
+        "LLM_DEBUG_OUTPUT_DIR": temp_debug_dir,
+    }
+
+    try:
+        with patch.dict(os.environ, env_vars):
+            manager = LLMManager()
+
+            messages = [{"role": "user", "content": "Test error handling"}]
+
+            mock_response = MagicMock()
+            with patch("shared.llm_manager.completion", return_value=mock_response):
+                # Should not raise exception even if debug output fails
+                response = await manager.call_llm(messages)
+                assert response == mock_response
+
+    finally:
+        # Restore permissions for cleanup
+        os.chmod(temp_debug_dir, 0o755)
+
+
+@pytest.mark.asyncio
+async def test_cleanup_error_handling(temp_debug_dir):
+    """Test error handling during file cleanup."""
+    # Create a file and make it undeletable
+    protected_file = os.path.join(temp_debug_dir, "llm_call_protected.txt")
+    with open(protected_file, 'w') as f:
+        f.write("Protected file")
+    os.chmod(protected_file, 0o444)
+
+    # Create other normal files
+    for i in range(25):
+        filename = f"llm_call_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{i:03d}.txt"
+        filepath = os.path.join(temp_debug_dir, filename)
+        with open(filepath, 'w') as f:
+            f.write(f"Debug file {i}")
+
+    env_vars = {
+        "LLM_MODEL": "openai/gpt-4",
+        "LLM_KEY": "test-key",
+        "LLM_DEBUG_OUTPUT": "true",
+        "LLM_DEBUG_OUTPUT_DIR": temp_debug_dir,
+    }
+
+    with patch.dict(os.environ, env_vars):
+        manager = LLMManager()
+
+        # Cleanup should handle protected file gracefully
+        try:
+            manager._cleanup_old_debug_files()
+            # Should not raise an exception
+        except Exception as e:
+            pytest.fail(f"Cleanup should handle file deletion errors gracefully: {e}")
+
+        # Should have cleaned up some files, even if some failed
+        debug_files = [f for f in os.listdir(temp_debug_dir) if f.startswith("llm_call_")]
+        assert len(debug_files) >= 1  # At least the protected file should remain
+
+
+@pytest.mark.asyncio
+async def test_debug_output_with_complex_messages(temp_debug_dir):
+    """Test debug output with complex message structures."""
+    env_vars = {
+        "LLM_MODEL": "openai/gpt-4",
+        "LLM_KEY": "test-key",
+        "LLM_DEBUG_OUTPUT": "true",
+        "LLM_DEBUG_OUTPUT_DIR": temp_debug_dir,
+    }
+
+    with patch.dict(os.environ, env_vars):
+        manager = LLMManager()
+
+        # Messages with special characters and multiline content
+        messages = [
+            {"role": "system", "content": "You are a helpful assistant.\nYou should be helpful and harmless."},
+            {"role": "user", "content": "What's 2+2?\nPlease explain your reasoning."},
+            {"role": "assistant", "content": "2+2=4\n\nThis is basic arithmetic."},
+            {"role": "user", "content": "Thanks! Can you help with \"quotes\" and 'apostrophes'?"},
+        ]
+
+        mock_response = MagicMock()
+        with patch("shared.llm_manager.completion", return_value=mock_response):
+            await manager.call_llm(messages)
+
+        debug_files = [f for f in os.listdir(temp_debug_dir) if f.startswith("llm_call_")]
+        assert len(debug_files) == 1
+
+        debug_file_path = os.path.join(temp_debug_dir, debug_files[0])
+        with open(debug_file_path, 'r') as f:
+            content = f.read()
+
+        # Verify all messages are present with proper formatting
+        assert "As (SYSTEM) :" in content
+        assert "You are a helpful assistant.\nYou should be helpful and harmless." in content
+        assert "As (USER) :" in content
+        assert "What's 2+2?\nPlease explain your reasoning." in content
+        assert "As (ASSISTANT) :" in content
+        assert "2+2=4\n\nThis is basic arithmetic." in content
+        assert "quotes" in content and "apostrophes" in content

@@ -162,7 +162,7 @@ class AgentGoalWorkflow:
                 # connect to LLM and execute to get next steps
                 # noinspection PyTypeChecker
                 tool_data = await workflow.execute_activity_method(
-                    ToolActivities.agent_toolPlanner,
+                    ToolActivities.agent_tool_planner,
                     prompt_input,
                     schedule_to_close_timeout=LLM_ACTIVITY_SCHEDULE_TO_CLOSE_TIMEOUT,
                     start_to_close_timeout=LLM_ACTIVITY_START_TO_CLOSE_TIMEOUT,

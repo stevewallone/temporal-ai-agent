@@ -69,7 +69,7 @@ async def main():
                 workflows=[AgentGoalWorkflow],
                 activities=[
                     activities.agent_validatePrompt,
-                    activities.agent_toolPlanner,
+                    activities.agent_tool_planner,
                     activities.get_wf_env_vars,
                     activities.mcp_tool_activity,
                     dynamic_tool_activity,
