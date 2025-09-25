@@ -53,7 +53,7 @@ class AgentGoalWorkflow:
             False  # indicates that we have confirmation to proceed to run tool
         )
         self.tool_results: List[Dict[str, Any]] = []
-        self.goal: AgentGoal = {'tools': []}
+        self.goal: AgentGoal = {"tools": []}
         self.show_tool_args_confirmation: bool = (
             True  # set from env file in activity lookup_wf_env_settings
         )

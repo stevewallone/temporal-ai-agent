@@ -125,7 +125,9 @@ class TestToolActivities:
 
             # Verify call_llm was called with correct parameters
             mock_call_llm.assert_called_once()
-            call_args = mock_call_llm.call_args[0][0]  # First positional argument (messages)
+            call_args = mock_call_llm.call_args[0][
+                0
+            ]  # First positional argument (messages)
             assert len(call_args) == 2
             assert call_args[0]["role"] == "system"
             assert call_args[1]["role"] == "user"

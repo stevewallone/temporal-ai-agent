@@ -7,8 +7,8 @@ LLM when the primary LLM fails for more than the configured timeout.
 
 import asyncio
 import os
-import tempfile
 import shutil
+import tempfile
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -69,7 +69,9 @@ async def test_successful_primary_llm_call(mock_env_vars):
     mock_response = MagicMock()
     mock_response.choices = [MagicMock(message=MagicMock(content="Test response"))]
 
-    with patch("shared.llm_manager.completion", return_value=mock_response) as mock_completion:
+    with patch(
+        "shared.llm_manager.completion", return_value=mock_response
+    ) as mock_completion:
         messages = [{"role": "user", "content": "Test message"}]
         response = await manager.call_llm(messages)
 
@@ -88,7 +90,9 @@ async def test_fallback_after_timeout(mock_env_vars):
     manager.primary_failure_time = datetime.now() - timedelta(minutes=3)
 
     mock_fallback_response = MagicMock()
-    mock_fallback_response.choices = [MagicMock(message=MagicMock(content="Fallback response"))]
+    mock_fallback_response.choices = [
+        MagicMock(message=MagicMock(content="Fallback response"))
+    ]
 
     with patch("shared.llm_manager.completion") as mock_completion:
         # First call fails (primary), second succeeds (fallback)
@@ -116,7 +120,9 @@ async def test_immediate_fallback_on_primary_failure(mock_env_vars):
     manager = LLMManager()
 
     mock_fallback_response = MagicMock()
-    mock_fallback_response.choices = [MagicMock(message=MagicMock(content="Fallback response"))]
+    mock_fallback_response.choices = [
+        MagicMock(message=MagicMock(content="Fallback response"))
+    ]
 
     with patch("shared.llm_manager.completion") as mock_completion:
         # First call fails (primary), second succeeds (fallback)
@@ -150,7 +156,9 @@ async def test_recovery_to_primary(mock_env_vars):
     mock_response = MagicMock()
     mock_response.choices = [MagicMock(message=MagicMock(content="OK"))]
 
-    with patch("shared.llm_manager.completion", return_value=mock_response) as mock_completion:
+    with patch(
+        "shared.llm_manager.completion", return_value=mock_response
+    ) as mock_completion:
         messages = [{"role": "user", "content": "Test message"}]
         response = await manager.call_llm(messages)
 
@@ -250,8 +258,7 @@ async def test_integration_with_tool_activities(mock_env_vars):
 
     with patch.object(activities.llm_manager, "call_llm", return_value=mock_response):
         input_data = ToolPromptInput(
-            prompt="Test prompt",
-            context_instructions="Test context"
+            prompt="Test prompt", context_instructions="Test context"
         )
 
         result = await env.run(activities.agent_tool_planner, input_data)
@@ -315,12 +322,14 @@ async def test_save_debug_output(temp_debug_dir):
             await manager.call_llm(messages, **kwargs)
 
         # Check that debug file was created
-        debug_files = [f for f in os.listdir(temp_debug_dir) if f.startswith("llm_call_")]
+        debug_files = [
+            f for f in os.listdir(temp_debug_dir) if f.startswith("llm_call_")
+        ]
         assert len(debug_files) == 1
 
         # Verify file contents
         debug_file_path = os.path.join(temp_debug_dir, debug_files[0])
-        with open(debug_file_path, 'r') as f:
+        with open(debug_file_path, "r") as f:
             content = f.read()
 
         assert "=== LLM Debug Output ===" in content
@@ -362,11 +371,13 @@ async def test_debug_output_fallback_model(temp_debug_dir):
             await manager.call_llm(messages)
 
         # Check debug file
-        debug_files = [f for f in os.listdir(temp_debug_dir) if f.startswith("llm_call_")]
+        debug_files = [
+            f for f in os.listdir(temp_debug_dir) if f.startswith("llm_call_")
+        ]
         assert len(debug_files) == 1
 
         debug_file_path = os.path.join(temp_debug_dir, debug_files[0])
-        with open(debug_file_path, 'r') as f:
+        with open(debug_file_path, "r") as f:
             content = f.read()
 
         assert "Model: anthropic/claude-3" in content
@@ -380,7 +391,7 @@ async def test_cleanup_old_debug_files(temp_debug_dir):
     for i in range(25):
         filename = f"llm_call_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{i:03d}.txt"
         filepath = os.path.join(temp_debug_dir, filename)
-        with open(filepath, 'w') as f:
+        with open(filepath, "w") as f:
             f.write(f"Debug file {i}")
 
         # Modify file times to simulate different creation times
@@ -402,7 +413,9 @@ async def test_cleanup_old_debug_files(temp_debug_dir):
         manager._cleanup_old_debug_files()
 
         # Check that only 20 files remain
-        debug_files = [f for f in os.listdir(temp_debug_dir) if f.startswith("llm_call_")]
+        debug_files = [
+            f for f in os.listdir(temp_debug_dir) if f.startswith("llm_call_")
+        ]
         assert len(debug_files) == 20
 
         # Verify the most recent files are kept (files 0-19, which have newer timestamps)
@@ -419,7 +432,7 @@ async def test_cleanup_called_during_save_debug_output(temp_debug_dir):
     for i in range(22):
         filename = f"llm_call_20240101_120000_{i:03d}.txt"
         filepath = os.path.join(temp_debug_dir, filename)
-        with open(filepath, 'w') as f:
+        with open(filepath, "w") as f:
             f.write(f"Old debug file {i}")
 
     env_vars = {
@@ -440,8 +453,12 @@ async def test_cleanup_called_during_save_debug_output(temp_debug_dir):
             await manager.call_llm(messages)
 
         # Should have cleaned up old files and created 1 new one
-        debug_files = [f for f in os.listdir(temp_debug_dir) if f.startswith("llm_call_")]
-        assert len(debug_files) <= 21  # 20 old + 1 new, but cleanup may have removed some old ones
+        debug_files = [
+            f for f in os.listdir(temp_debug_dir) if f.startswith("llm_call_")
+        ]
+        assert (
+            len(debug_files) <= 21
+        )  # 20 old + 1 new, but cleanup may have removed some old ones
 
 
 @pytest.mark.asyncio
@@ -480,7 +497,7 @@ async def test_cleanup_error_handling(temp_debug_dir):
     """Test error handling during file cleanup."""
     # Create a file and make it undeletable
     protected_file = os.path.join(temp_debug_dir, "llm_call_protected.txt")
-    with open(protected_file, 'w') as f:
+    with open(protected_file, "w") as f:
         f.write("Protected file")
     os.chmod(protected_file, 0o444)
 
@@ -488,7 +505,7 @@ async def test_cleanup_error_handling(temp_debug_dir):
     for i in range(25):
         filename = f"llm_call_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{i:03d}.txt"
         filepath = os.path.join(temp_debug_dir, filename)
-        with open(filepath, 'w') as f:
+        with open(filepath, "w") as f:
             f.write(f"Debug file {i}")
 
     env_vars = {
@@ -510,7 +527,9 @@ async def test_cleanup_error_handling(temp_debug_dir):
             pytest.fail(f"Cleanup should handle file deletion errors gracefully: {e}")
 
         # Should have cleaned up some files, even if some failed
-        debug_files = [f for f in os.listdir(temp_debug_dir) if f.startswith("llm_call_")]
+        debug_files = [
+            f for f in os.listdir(temp_debug_dir) if f.startswith("llm_call_")
+        ]
         assert len(debug_files) >= 1  # At least the protected file should remain
 
 
@@ -530,26 +549,37 @@ async def test_debug_output_with_complex_messages(temp_debug_dir):
 
         # Messages with special characters and multiline content
         messages = [
-            {"role": "system", "content": "You are a helpful assistant.\nYou should be helpful and harmless."},
+            {
+                "role": "system",
+                "content": "You are a helpful assistant.\nYou should be helpful and harmless.",
+            },
             {"role": "user", "content": "What's 2+2?\nPlease explain your reasoning."},
             {"role": "assistant", "content": "2+2=4\n\nThis is basic arithmetic."},
-            {"role": "user", "content": "Thanks! Can you help with \"quotes\" and 'apostrophes'?"},
+            {
+                "role": "user",
+                "content": "Thanks! Can you help with \"quotes\" and 'apostrophes'?",
+            },
         ]
 
         mock_response = MagicMock()
         with patch("shared.llm_manager.completion", return_value=mock_response):
             await manager.call_llm(messages)
 
-        debug_files = [f for f in os.listdir(temp_debug_dir) if f.startswith("llm_call_")]
+        debug_files = [
+            f for f in os.listdir(temp_debug_dir) if f.startswith("llm_call_")
+        ]
         assert len(debug_files) == 1
 
         debug_file_path = os.path.join(temp_debug_dir, debug_files[0])
-        with open(debug_file_path, 'r') as f:
+        with open(debug_file_path, "r") as f:
             content = f.read()
 
         # Verify all messages are present with proper formatting
         assert "As (SYSTEM) :" in content
-        assert "You are a helpful assistant.\nYou should be helpful and harmless." in content
+        assert (
+            "You are a helpful assistant.\nYou should be helpful and harmless."
+            in content
+        )
         assert "As (USER) :" in content
         assert "What's 2+2?\nPlease explain your reasoning." in content
         assert "As (ASSISTANT) :" in content

@@ -62,7 +62,7 @@ async def main():
     numeric_level = getattr(logging, log_level, logging.INFO)
     logging.basicConfig(
         level=numeric_level,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
     print(f"Logging configured at level: {log_level}")
 

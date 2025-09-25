@@ -19,8 +19,8 @@ from models.data_types import (
     ValidationResult,
 )
 from models.tool_definitions import MCPServerDefinition
-from shared.mcp_client_manager import MCPClientManager
 from shared.llm_manager import LLMManager
+from shared.mcp_client_manager import MCPClientManager
 
 # Import MCP client libraries
 try:
@@ -139,7 +139,9 @@ class ToolActivities:
             activity.logger.info(
                 f"LLM response length: {len(response_content) if response_content else 'None'}"
             )
-            activity.logger.info(f"Using LLM model: {self.llm_manager.get_current_model()}")
+            activity.logger.info(
+                f"Using LLM model: {self.llm_manager.get_current_model()}"
+            )
 
             # Use the new sanitize function
             response_content = self.sanitize_json_response(response_content)
